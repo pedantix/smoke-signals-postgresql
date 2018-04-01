@@ -1,0 +1,29 @@
+version: '3'
+services:
+  ngrok:
+    image: wernight/ngrok
+    environment:
+    - NGROK_PORT=web:8080
+    ports:
+      - "4040:4040"
+    links:
+      - web
+  db:
+    image: postgres
+    environment:
+      - POSTGRES_DB=smoke_signals
+    volumes:
+      - ./tmp/db:/var/lib/postgresql/data
+  web:
+    build: .
+    environment:
+      - DATABASE_HOSTNAME=db
+      - DATABASE_USERNAME=postgres
+      - DATABASE_NAME=smoke_signals
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    links:
+      - db
+    depends_on:
+      - db

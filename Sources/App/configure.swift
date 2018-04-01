@@ -1,5 +1,5 @@
-import FluentSQLite
 import Vapor
+import PostgreSQL
 
 /// Called before your application initializes.
 ///
@@ -10,7 +10,8 @@ public func configure(
     _ services: inout Services
 ) throws {
     /// Register providers first
-    try services.register(FluentSQLiteProvider())
+    try services.register(PostgreSQLProvider())
+
 
     /// Register routes to the router
     let router = EngineRouter.default()
@@ -24,24 +25,37 @@ public func configure(
     middlewares.use(ErrorMiddleware.self) // Catches errors and converts to HTTP response
     services.register(middlewares)
 
-    // Configure a SQLite database
-    let sqlite: SQLiteDatabase
-    if env.isRelease {
-        /// Create file-based SQLite db using $SQLITE_PATH from process env
-        sqlite = try SQLiteDatabase(storage: .file(path: Environment.get("SQLITE_PATH")!))
-    } else {
-        /// Create an in-memory SQLite database
-        sqlite = try SQLiteDatabase(storage: .memory)
-    }
+    configureWebsockets(&services)
+    try configureDatabase(&services)
+}
 
-    /// Register the configured SQLite database to the database config.
+func configureWebsockets(_ services: inout Services) {
+    let websockets = EngineWebSocketServer.default()
+    websockets.get("socket", String.parameter, use: chatterHandler)
+    services.register(websockets, as: WebSocketServer.self)
+}
+
+
+private func configureDatabase(_ services: inout Services) throws {
+    let defaultConfig = PostgreSQLDatabaseConfig.default()
+    let databaseHostname = ProcessInfo.processInfo.environment["DATABASE_HOSTNAME"] ?? defaultConfig.hostname
+    let databasePort = ProcessInfo.processInfo.environment["DATABASE_PORT"]?.intValue ?? defaultConfig.port
+    let databaseUsername = ProcessInfo.processInfo.environment["DATABASE_USERNAME"] ??  defaultConfig.username
+
+    let databasePassword = ProcessInfo.processInfo.environment["DATABASE_PASSWORD"]
+    let databaseName = ProcessInfo.processInfo.environment["DATABASE_NAME"] ??  defaultConfig.database
+
+    let databaseConfig = PostgreSQLDatabaseConfig(hostname: databaseHostname,
+                                                  port: databasePort,
+                                                  username: databaseUsername,
+                                                  database: databaseName,
+                                                  password: databasePassword)
+
+    let database = PostgreSQLDatabase(config: databaseConfig)
+
     var databases = DatabaseConfig()
-    databases.add(database: sqlite, as: .sqlite)
+    databases.add(database: database,
+                  as: .psql)
     services.register(databases)
-
-    /// Configure migrations
-    var migrations = MigrationConfig()
-    migrations.add(model: Todo.self, database: .sqlite)
-    services.register(migrations)
-
+    services.register(database)
 }
